@@ -1,0 +1,27 @@
+# Environment and secrets - NEVER commit these
+.env
+.env.local
+*.env
+deploy_local.sh
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+
+# GCP credentials - NEVER commit
+*credentials*.json
+service-account*.json
+key*.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
