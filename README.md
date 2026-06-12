@@ -1,172 +1,119 @@
-# GCP Cloud Budget Guard ☁️🛡️
+# GCP Cloud Budget Guard ☁️
 
-A serverless cost-monitoring tool built on Google Cloud Platform that automatically monitors GCP spending and prevents budget overruns.
+A serverless cloud cost monitoring system that automatically sends email alerts when GCP billing exceeds defined thresholds. Built with Python, Google Cloud Functions, Pub/Sub, and Gmail SMTP.
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        GCP Project                              │
-│                                                                 │
-│  ┌─────────────────┐    Pub/Sub     ┌──────────────────────┐   │
-│  │  Cloud Billing  │─── Message ───▶│   budget-alerts      │   │
-│  │     Budget      │    (80/90%)    │    (Pub/Sub Topic)   │   │
-│  └─────────────────┘                └──────────┬───────────┘   │
-│                                                │               │
-│                                         Trigger│               │
-│                                                ▼               │
-│                                  ┌─────────────────────────┐   │
-│                                  │    budget-guard         │   │
-│                                  │   (Cloud Function)      │   │
-│                                  │                         │   │
-│                                  │  if spend >= 80%:       │   │
-│                                  │    → send email alert   │   │
-│                                  │  if spend >= 100%:      │   │
-│                                  │    → disable billing    │   │
-│                                  └────────────┬────────────┘   │
-│                                               │                │
-└───────────────────────────────────────────────┼────────────────┘
-                                                │
-                    ┌───────────────────────────┼──────────────┐
-                    │                           │              │
-                    ▼                           ▼              ▼
-             ┌──────────┐              ┌──────────────┐  ┌──────────┐
-             │  Gmail   │              │ Cloud Billing│  │  Cloud   │
-             │  Alert   │              │   API        │  │ Logging  │
-             │  Email   │              │ (disable)    │  │          │
-             └──────────┘              └──────────────┘  └──────────┘
+GCP Billing  →  Pub/Sub Topic  →  Cloud Function (Python)  →  Gmail SMTP  →  Email Alert
 ```
+
+1. GCP Budget triggers a **Pub/Sub** message when spend crosses a threshold
+2. A **Cloud Function** subscribes to the topic and is invoked automatically
+3. The function parses billing data and sends a formatted **email alert via Gmail SMTP**
+4. A companion **Next.js dashboard** visualizes the architecture and alert history
+
+---
+
+## Repos
+
+| Repo | Description |
+|------|-------------|
+| [`gcp-budget-guard`](https://github.com/SwathiGuttula/gcp-budget-guard) | Python Cloud Function + Pub/Sub trigger |
+| [`gcp-budget-guard-ui`](https://github.com/SwathiGuttula/gcp-budget-guard-ui) | Next.js dashboard UI |
+
+---
 
 ## Features
 
-- **Dual-threshold alerts** — email notifications at 80% and 90% spend
-- **Auto-stop at 100%** — billing is automatically disabled via the Cloud Billing API, achieving 100% prevention of cost overruns
-- **HTML email alerts** — rich formatted alerts with spend bar, amounts, and timestamps
-- **Cloud Logging** — all events logged for audit trail
-- **Serverless** — runs only when triggered, costs near zero
+- **Serverless** — Cloud Function auto-scales, zero idle cost
+- **Pub/Sub trigger** — event-driven, fires within 1–2 minutes of threshold breach
+- **Gmail SMTP alerts** — formatted email with project name, current spend, and threshold
+- **IAM least-privilege** — Cloud Function runs with minimal permissions (Billing Viewer only)
+- **Environment-based config** — no hardcoded credentials, all via GCP Secret Manager / env vars
+
+---
 
 ## Tech Stack
 
-| Component | Service |
-|-----------|---------|
-| Budget monitoring | Cloud Billing Budgets API |
-| Event delivery | Cloud Pub/Sub |
-| Business logic | Cloud Functions (Python 3.11) |
-| Email alerts | Gmail SMTP |
-| Billing control | Cloud Billing API |
-| Observability | Cloud Logging / Monitoring |
+| Layer | Tech |
+|-------|------|
+| Runtime | Python 3.11 |
+| Trigger | Google Cloud Pub/Sub |
+| Compute | Google Cloud Functions (Gen 2) |
+| Alerting | GCP Cloud Billing Budget API |
+| Notifications | Gmail SMTP |
+| IAM | Google Cloud IAM (least-privilege) |
+| Dashboard UI | Next.js 14, TypeScript, Tailwind CSS |
+
+---
 
 ## Project Structure
 
 ```
 gcp-budget-guard/
-├── main.py            # Cloud Function — handles Pub/Sub trigger
-├── requirements.txt   # Python dependencies
-├── budget_setup.py    # One-time script to create billing budget
-├── deploy.sh          # Full deployment script
+├── main.py              ← Cloud Function entry point
+├── requirements.txt     ← Python dependencies
 └── README.md
 ```
 
-## Setup & Deployment
+---
 
-### Prerequisites
-- GCP account with billing enabled
-- `gcloud` CLI installed and authenticated
-- Gmail account for sending alerts
+## How It Works
 
-### Step 1 — Clone & configure
-
-```bash
-git clone https://github.com/SwathiGuttula/gcp-budget-guard
-cd gcp-budget-guard
+```python
+# main.py — triggered by Pub/Sub
+def budget_alert(event, context):
+    data = json.loads(base64.b64decode(event['data']))
+    cost = data['costAmount']
+    budget = data['budgetAmount']
+    project = data['budgetDisplayName']
+    
+    if cost >= budget * 0.8:   # 80% threshold
+        send_email_alert(project, cost, budget)
 ```
 
-Edit `deploy.sh` and fill in your values:
-```bash
-PROJECT_ID="your-project-id"
-BILLING_ACCOUNT_ID="YOUR-BILLING-ID"
-ALERT_EMAIL="your-email@gmail.com"
-SMTP_EMAIL="your-gmail@gmail.com"
-SMTP_PASSWORD="your-app-password"   # Gmail App Password (not your login password)
-```
-
-### Step 2 — Get Gmail App Password
-
-1. Go to **myaccount.google.com → Security → 2-Step Verification**
-2. At the bottom, click **App passwords**
-3. Generate one for "Mail" → copy the 16-character password
-4. Paste it as `SMTP_PASSWORD` in deploy.sh
-
-### Step 3 — Deploy
-
-```bash
-bash deploy.sh
-```
-
-This will:
-1. Enable required GCP APIs
-2. Create the `budget-alerts` Pub/Sub topic
-3. Deploy the Cloud Function
-4. Create the billing budget with 80%/90%/100% thresholds
-
-### Step 4 — Test locally
-
-```bash
-# Install dependencies
-pip install google-auth google-api-python-client
-
-# Simulate a budget alert at 80%
-python - <<EOF
-import base64, json
-from main import budget_alert
-
-# Simulate Pub/Sub event
-alert_data = {
-    "budgetDisplayName": "Budget Guard",
-    "alertThresholdExceeded": 0.8,
-    "costAmount": 8.0,
-    "budgetAmount": 10.0,
-    "costIntervalStart": "2026-06-01T00:00:00Z",
-    "currencyCode": "USD"
-}
-event = {"data": base64.b64encode(json.dumps(alert_data).encode())}
-budget_alert(event, None)
-EOF
-```
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `ALERT_EMAIL` | Email address to receive alerts |
-| `SMTP_EMAIL` | Gmail address used to send alerts |
-| `SMTP_PASSWORD` | Gmail App Password |
-| `BILLING_ACCOUNT_ID` | Your GCP billing account ID |
-| `GCP_PROJECT` | Your GCP project ID |
-
-## Alert Email Preview
-
-When spend hits 80% or 90%, an email is sent with:
-- Budget name and current spend vs limit
-- Visual progress bar
-- Billing period and alert timestamp
-- Direct link to GCP Billing Console
-- Red warning banner if billing was auto-disabled (100%)
-
-## Cost
-
-This project costs **~$0/month** to run:
-- Cloud Functions: 2M free invocations/month
-- Pub/Sub: 10GB free/month
-- Budget alerts fire at most a few times per month
-
-## Key Results
-
-- ✅ Alerts delivered within **1–2 minutes** of threshold breach
-- ✅ **100% prevention** of cost overruns via auto-disable at budget ceiling
-- ✅ Dual-threshold (80%, 90%) monitoring for proactive cost management
-- ✅ Fully serverless — zero maintenance overhead
+The function decodes the Pub/Sub message, extracts billing data, and sends an email if spend crosses the configured percentage.
 
 ---
 
-Built by [Swathi Sree Guttula](https://github.com/SwathiGuttula)
+## Local Testing
+
+```bash
+pip install -r requirements.txt
+
+# Simulate a Pub/Sub event locally
+functions-framework --target=budget_alert --signature-type=event
+```
+
+---
+
+## Deployment
+
+```bash
+gcloud functions deploy budget-alert \
+  --runtime python311 \
+  --trigger-topic billing-alerts \
+  --set-env-vars ALERT_EMAIL=you@gmail.com,GMAIL_PASSWORD=your_app_password \
+  --service-account budget-guard-sa@PROJECT.iam.gserviceaccount.com
+```
+
+> **Note:** GCP resources were deleted after development to avoid ongoing costs. The architecture and code are fully documented for reference and demonstration.
+
+---
+
+## Dashboard UI
+
+The companion Next.js dashboard visualizes the alert system architecture and simulates alert history. Live at: https://shopbot-ai-wheat.vercel.app
+
+> Repo: [gcp-budget-guard-ui](https://github.com/SwathiGuttula/gcp-budget-guard-ui)
+
+---
+
+## Author
+
+**Swathi Guttula**  
+B.Tech Computer Science, KL University  
+[GitHub](https://github.com/SwathiGuttula) · [LinkedIn](https://linkedin.com/in/swathiguttula)
