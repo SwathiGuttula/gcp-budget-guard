@@ -106,7 +106,7 @@ gcloud functions deploy budget-alert \
 
 ## Dashboard UI
 
-The companion Next.js dashboard visualizes the alert system architecture and simulates alert history. Live at: https://shopbot-ai-wheat.vercel.app
+The companion Next.js dashboard visualizes the alert system architecture and simulates alert history. Live at: https://gcp-budget-guard-ui.vercel.app
 
 > Repo: [gcp-budget-guard-ui](https://github.com/SwathiGuttula/gcp-budget-guard-ui)
 
